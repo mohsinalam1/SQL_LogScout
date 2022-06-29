@@ -97,6 +97,8 @@ param
 [int] $global:scenario_bitvalue  = 0
 [int] $global:sql_major_version = -1
 [int] $global:sql_major_build = -1
+[bool] $global:gui_mode = $false
+[bool] $global:gui_Result = $false
 
 #constants
 [string] $BASIC_NAME = "Basic"
@@ -3312,171 +3314,250 @@ function Select-Scenario()
 
         [int[]]$scenIntArray =@()
 
-        #If Scenario array contains only "MenuChoice" or only "NoBasic" or array is empty (no parameters passed), or MenuChoice+NoBasic is passed, then show Menu
-        if ( (($ScenarioArrayLocal -contains "MenuChoice") -and ($ScenarioArrayLocal.Count -eq 1 ) ) `
-            -or ( $ScenarioArrayLocal -contains [String]::Empty  -and @($ScenarioArrayLocal).count -lt 2   ) `
-            -or ($ScenarioArrayLocal -contains "NoBasic" -and $ScenarioArrayLocal.Count -eq 1) `
-            -or ($ScenarioArrayLocal -contains "NoBasic" -and $ScenarioArrayLocal -contains "MenuChoice" -and $ScenarioArrayLocal.Count -eq 2) 
-            )
+
+        if(!$global:gui_Result)
         {
-            Write-LogInformation "Please select one of the following scenarios:"
-            Write-LogInformation ""
-            Write-LogInformation "ID`t Scenario"
-            Write-LogInformation "--`t ---------------"
-
-            for($i=0; $i -lt $global:ScenarioArray.Count;$i++)
+        #If Scenario array contains only "MenuChoice" or only "NoBasic" or array is empty (no parameters passed), or MenuChoice+NoBasic is passed, then show Menu
+            if ( (($ScenarioArrayLocal -contains "MenuChoice") -and ($ScenarioArrayLocal.Count -eq 1 ) ) `
+                -or ( $ScenarioArrayLocal -contains [String]::Empty  -and @($ScenarioArrayLocal).count -lt 2   ) `
+                -or ($ScenarioArrayLocal -contains "NoBasic" -and $ScenarioArrayLocal.Count -eq 1) `
+                -or ($ScenarioArrayLocal -contains "NoBasic" -and $ScenarioArrayLocal -contains "MenuChoice" -and $ScenarioArrayLocal.Count -eq 2) 
+                )
             {
-                Write-LogInformation $i "`t" $global:ScenarioArray[$i]
-            }
-            Write-LogInformation "--`t ---------------`n"
-            Write-LogInformation "See https://aka.ms/sqllogscout#Scenarios for Scenario details"
-
-            $isInt = $false
-            $ScenarioIdInt = 777
-            $WantDetailedPerf = $false
-
-            
-
-            
-            while(($isInt -eq $false) -or ($ValidId -eq $false) -or ($WantDetailedPerf -eq $false))
-            {
+                Write-LogInformation "Please select one of the following scenarios:"
                 Write-LogInformation ""
-                Write-LogWarning "Type one or more Scenario IDs (separated by '+') for which you want to collect diagnostic data. Then press Enter" 
+                Write-LogInformation "ID`t Scenario"
+                Write-LogInformation "--`t ---------------"
 
-                $ScenIdStr = Read-Host "Scenario ID(s) e.g. 0+3+6>" -CustomLogMessage "Scenario Console input:"
-                [string[]]$scenStrArray = $ScenIdStr.Split('+')
-                
-                Write-LogDebug "You have selected the following scenarios (str): $scenStrArray" -DebugLogLevel 3
-
-                
-                
-                foreach($int_string in $scenStrArray) 
+                for($i=0; $i -lt $global:ScenarioArray.Count;$i++)
                 {
-                    try 
-                    {
-                        #convert the strings to integers and add to int array
-                        $int_number = [int]::parse($int_string)
-                        $scenIntArray+=$int_number
+                    Write-LogInformation $i "`t" $global:ScenarioArray[$i]
+                }
+                Write-LogInformation "--`t ---------------`n"
+                Write-LogInformation "See https://aka.ms/sqllogscout#Scenarios for Scenario details"
 
-                        $isInt = $true
-                        if($int_string -notin ($scenarioIntRange))
+                $isInt = $false
+                $ScenarioIdInt = 777
+                $WantDetailedPerf = $false
+
+            
+
+        
+                while(($isInt -eq $false) -or ($ValidId -eq $false) -or ($WantDetailedPerf -eq $false))
+                {
+                    Write-LogInformation ""
+                    Write-LogWarning "Type one or more Scenario IDs (separated by '+') for which you want to collect diagnostic data. Then press Enter" 
+
+                    $ScenIdStr = Read-Host "Scenario ID(s) e.g. 0+3+6>" -CustomLogMessage "Scenario Console input:"
+                    [string[]]$scenStrArray = $ScenIdStr.Split('+')
+                
+                    Write-LogDebug "You have selected the following scenarios (str): $scenStrArray" -DebugLogLevel 3
+
+                
+                
+                    foreach($int_string in $scenStrArray) 
+                    {
+                        try 
                         {
-                            $ValidId = $false
+                            #convert the strings to integers and add to int array
+                            $int_number = [int]::parse($int_string)
+                            $scenIntArray+=$int_number
+
+                            $isInt = $true
+                            if($int_string -notin ($scenarioIntRange))
+                            {
+                                $ValidId = $false
+                                $scenIntArray =@()
+                                Write-LogError "The ID entered '",$ScenIdStr,"' is not in the list "
+                            }
+                            else 
+                            {
+                                $ValidId = $true    
+                            }
+                        }
+                        catch 
+                        {
+                            Write-LogError "The value entered for ID '",$int_string,"' is not an integer"
                             $scenIntArray =@()
-                            Write-LogError "The ID entered '",$ScenIdStr,"' is not in the list "
+                            $isInt = $false
                         }
-                        else 
+                    }
+
+                
+                    #warn users when they select the Detailed perf scenario about perf impact. No warning if all others
+                    if ($int_number -eq $DetailedPerfScenId) 
+                    {
+                        # if true, proceed, else, disable scenario and try again
+                        $WantDetailedPerf = DetailedPerfCollectorWarning
+
+                        if ($false -eq $WantDetailedPerf)
                         {
-                            $ValidId = $true    
+                            #once user declines, need to clear the selected bit
+                            DisableScenario -pScenarioBit $global:detailedperfBit
+                            Write-LogWarning "You selected not to proceed with Detailed Perf scenario. Please choose again"    
                         }
                     }
-                    catch 
+                    else 
                     {
-                        Write-LogError "The value entered for ID '",$int_string,"' is not an integer"
-                        $scenIntArray =@()
-                        $isInt = $false
+                        $WantDetailedPerf = $true    
                     }
-                }
-
                 
-                #warn users when they select the Detailed perf scenario about perf impact. No warning if all others
-                if ($int_number -eq $DetailedPerfScenId) 
-                {
-                    # if true, proceed, else, disable scenario and try again
-                    $WantDetailedPerf = DetailedPerfCollectorWarning
+                }
+            }#end of WHILE to select scenario
 
-                    if ($false -eq $WantDetailedPerf)
+                    #remove duplicate entries
+                    $scenIntArray = $scenIntArray | Select-Object -Unique 
+
+                    Write-LogDebug "You have selected the following scearnios (int): $scenIntArray" -DebugLogLevel 3
+                
+                    foreach ($ScenarioIdInt in $scenIntArray) 
                     {
-                        #once user declines, need to clear the selected bit
-                        DisableScenario -pScenarioBit $global:detailedperfBit
-                        Write-LogWarning "You selected not to proceed with Detailed Perf scenario. Please choose again"    
-                    }
-                }
-                else 
-                {
-                    $WantDetailedPerf = $true    
-                }
-                
-            } #end of WHILE to select scenario
+                        switch ($ScenarioIdInt) 
+                        {
+                            $BasicScenId 
+                            { 
+                                EnableScenario -pScenarioBit $global:basicBit
+                            }
+                            $GeneralPerfScenId 
+                            {
+                                EnableScenario -pScenarioBit $global:generalperfBit
+                            
+                            }
+                            $DetailedPerfScenId 
+                            { 
+                                EnableScenario -pScenarioBit $global:detailedperfBit
 
-                #remove duplicate entries
-                $scenIntArray = $scenIntArray | Select-Object -Unique 
+                            }
+                            $ReplicationScenId
+                            { 
+                                EnableScenario -pScenarioBit $global:replBit
+                            
+                            }
+                            $AlwaysOnScenId
+                            { 
+                                EnableScenario -pScenarioBit $global:alwaysonBit
+                            }
+                            $NetworkTraceScenId
+                            { 
+                                EnableScenario -pScenarioBit $global:networktraceBit
+                            }
+                            $MemoryScenId
+                            { 
+                                EnableScenario -pScenarioBit $global:memoryBit
 
-                Write-LogDebug "You have selected the following scearnios (int): $scenIntArray" -DebugLogLevel 3
-                
-                foreach ($ScenarioIdInt in $scenIntArray) 
-                {
-                    switch ($ScenarioIdInt) 
-                    {
-                        $BasicScenId 
+                            }
+                            $DumpMemoryScenId
+                            { 
+                                EnableScenario -pScenarioBit $global:dumpMemoryBit
+                            }
+                            $WprScenId
+                            { 
+                                EnableScenario -pScenarioBit $global:wprBit
+                            }
+                            $SetupScenId
+                            { 
+                                EnableScenario -pScenarioBit $global:setupBit
+
+                            }
+                            $BackupRestoreScenId
+                            { 
+                                EnableScenario -pScenarioBit $global:BackupRestoreBit
+
+                            }
+                            $IOScenId
+                            { 
+                                EnableScenario -pScenarioBit $global:IOBit
+
+                            }
+                            $LightPerfScenId
+                            {
+                                EnableScenario -pScenarioBit $global:LightPerfBit
+                            }
+                            # NoBasic scenario is only available as a command line option so not here
+
+                            Default {
+                                    Write-LogError "No valid scenario was picked. Not sure why we are here"
+                                    return $false
+                            }
+                        } # end of Switch
+                    } #end of foreach    
+        }
+                #MA Added Begin===========
+
+                       if($Global:basicPerfCheckBox.IsChecked)  
                         { 
                             EnableScenario -pScenarioBit $global:basicBit
                         }
-                        $GeneralPerfScenId 
+
+                       if($Global:generalPerfCheckBox.IsChecked) 
                         {
                             EnableScenario -pScenarioBit $global:generalperfBit
                             
                         }
-                        $DetailedPerfScenId 
+                        if($Global:DetailedPerfCheckBox.IsChecked)  
                         { 
                             EnableScenario -pScenarioBit $global:detailedperfBit
 
                         }
-                        $ReplicationScenId
-                        { 
-                            EnableScenario -pScenarioBit $global:replBit
-                            
-                        }
-                        $AlwaysOnScenId
-                        { 
-                            EnableScenario -pScenarioBit $global:alwaysonBit
-                        }
-                        $NetworkTraceScenId
-                        { 
-                            EnableScenario -pScenarioBit $global:networktraceBit
-                        }
-                        $MemoryScenId
-                        { 
-                            EnableScenario -pScenarioBit $global:memoryBit
-
-                        }
-                        $DumpMemoryScenId
-                        { 
-                            EnableScenario -pScenarioBit $global:dumpMemoryBit
-                        }
-                        $WprScenId
-                        { 
-                            EnableScenario -pScenarioBit $global:wprBit
-                        }
-                        $SetupScenId
-                        { 
-                            EnableScenario -pScenarioBit $global:setupBit
-
-                        }
-                        $BackupRestoreScenId
-                        { 
-                            EnableScenario -pScenarioBit $global:BackupRestoreBit
-
-                        }
-                        $IOScenId
-                        { 
-                            EnableScenario -pScenarioBit $global:IOBit
-
-                        }
-                        $LightPerfScenId
+                        if($Global:LightPerfCheckBox.IsChecked) 
                         {
                             EnableScenario -pScenarioBit $global:LightPerfBit
                         }
+
+
+                        if($Global:replicationPerfCheckBox.IsChecked)
+                            { 
+                                EnableScenario -pScenarioBit $global:replBit
+                            
+                            }
+                            if($Global:alwaysOnPerfCheckBox.IsChecked)
+                            { 
+                                EnableScenario -pScenarioBit $global:alwaysonBit
+                            }
+                            if($Global:networkTraceCheckBox.IsChecked)
+                            { 
+                                EnableScenario -pScenarioBit $global:networktraceBit
+                            }
+                           if($Global:memoryCheckBox.IsChecked)
+                            { 
+                                EnableScenario -pScenarioBit $global:memoryBit
+
+                            }
+                            if($Global:dumpMemoryCheckBox.IsChecked)
+                            { 
+                                EnableScenario -pScenarioBit $global:dumpMemoryBit
+                            }
+                           if($Global:WPRCheckBox.IsChecked)
+                            { 
+                                EnableScenario -pScenarioBit $global:wprBit
+                            }
+                           if($Global:SetupCheckBox.IsChecked)
+                            { 
+                                EnableScenario -pScenarioBit $global:setupBit
+
+                            }
+                            if($Global:BackupRestoreCheckBox.IsChecked)
+                            { 
+                                EnableScenario -pScenarioBit $global:BackupRestoreBit
+
+                            }
+                             if($Global:IOCheckBox.IsChecked)
+                            { 
+                                EnableScenario -pScenarioBit $global:IOBit
+
+                            }
+                            
                         # NoBasic scenario is only available as a command line option so not here
 
-                        Default {
+                        if(!$Global:generalPerfCheckBox.IsChecked -And !$Global:DetailedPerfCheckBox.IsChecked -And !$Global:LightPerfCheckBox.IsChecked ) 
+                        {
                                 Write-LogError "No valid scenario was picked. Not sure why we are here"
                                 return $false
                         }
-                    } # end of Switch
-                } #end of foreach    
+                  
+                #MA Added end=============
 
-        } #end of if for using a Scenario menu
+         #end of if for using a Scenario menu
 
         #handle the command-line parameter case
         else 

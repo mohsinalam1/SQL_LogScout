@@ -4,10 +4,23 @@ function InitCriticalDirectories()
 {
     try 
     {
-        #initialize this directories
-        Set-PresentDirectory 
-        Set-OutputPath
-        Set-InternalPath    
+        # This will set presentaion mode either GUI or console.
+        Set-Mode
+        if ($global:gui_mode) 
+        {
+            #Test GUI.
+            LoadGUI
+            #Set-PresentDirectory 
+            Set-OutputPath
+            Set-InternalPath 
+        }
+        else
+        {
+            #initialize this directories
+            Set-PresentDirectory 
+            Set-OutputPath
+            Set-InternalPath    
+        }
     }
     catch
     {
@@ -24,7 +37,11 @@ function Set-PresentDirectory()
     try 
     {
         $global:present_directory = Convert-Path -Path "."
-        Write-LogInformation "The Present folder for this collection is" $global:present_directory     
+        Write-LogInformation "The Present folder for this collection is" $global:present_directory  
+        if ($global:gui_mode) 
+        {  
+            $Global:txtPresentDirectory.Text = $global:present_directory 
+        }
     }
     catch 
     {
@@ -54,7 +71,7 @@ function Set-OutputPath()
             $final_directory = $global:custom_user_directory
 
         }
-        elseif ($global:custom_user_directory -eq "PromptForCustomDir")    
+        elseif ($global:custom_user_directory -eq "PromptForCustomDir" -And !$global:gui_mode)    
         {
             $userlogfolder = Read-Host "Would your like the logs to be collected on a non-default drive and directory?" -CustomLogMessage "Prompt CustomDir Console Input:"
             $HelpMessage = "Please enter a valid input (Y or N)"
@@ -88,6 +105,12 @@ function Set-OutputPath()
 
         }
 
+        if ($global:gui_mode)
+        {
+            # Seting final diretory from GUI.
+            $final_directory = $Global:txtPresentDirectory.Text
+
+        }
         #the output folder is subfolder of current folder where the tool is running
         $global:output_folder =  ($final_directory + "\output\")
     }
@@ -189,9 +212,15 @@ function ReuseOrRecreateOutputFolder()
     Write-LogDebug "Error folder is: $global:internal_output_folder" -DebugLogLevel 3
     
     try {
-    
+
+        
+        if ($global:gui_mode) 
+        {
+            if($Global:overrideExistingCheckBox.IsChecked) {$DeleteOrNew = "D"}
+            else{$DeleteOrNew = "N"}
+        }
         #delete entire \output folder and files/subfolders before you create a new one, if user chooses that
-        if (Test-Path -Path $global:output_folder)  
+        elseif (Test-Path -Path $global:output_folder)  
         {
             if ([string]::IsNullOrWhiteSpace($DeleteExistingOrCreateNew) )
             {
@@ -585,6 +614,120 @@ function HandleCatchBlock ([string] $function_name, [System.Management.Automatio
         Write-LogWarning "Exiting SQL LogScout..."
         exit
     }
+}
+
+# Test GUI
+function LoadGUI()
+{
+    Write-LogDebug "inside" $MyInvocation.MyCommand
+
+    try 
+    {
+        Add-Type -AssemblyName PresentationCore,PresentationFramework,WindowsBase
+        [void] [System.Reflection.Assembly]::LoadWithPartialName("System.Drawing") 
+        [void] [System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms")
+        $XAMLPath = Convert-Path -Path "."
+        $XAMLPath = $XAMLPath + '\MainWindow.xaml'
+        $Launch_XAML = [XML](Get-Content $XAMLPath) # this is the  XAML Path
+        $xamlReader_Launch = New-Object System.Xml.XmlNodeReader $Launch_XAML
+        $Window = [Windows.Markup.XamlReader]::Load($xamlReader_Launch)
+        $Global:txtPresentDirectory = $Window.FindName("txtPresentDirectory") 
+        $Global:okButton = $Window.FindName("okButton")
+
+        #create CheckBoxes globals.
+        $Global:basicPerfCheckBox = $Window.FindName("basicPerfCheckBox")
+        $Global:generalPerfCheckBox = $Window.FindName("generalPerfCheckBox")
+        $Global:LightPerfCheckBox = $Window.FindName("LightPerfCheckBox")
+        $Global:DetailedPerfCheckBox = $Window.FindName("DetailedPerfCheckBox")
+        $Global:replicationPerfCheckBox = $Window.FindName("replicationPerfCheckBox")
+        $Global:alwaysOnPerfCheckBox = $Window.FindName("alwaysOnPerfCheckBox")
+        $Global:networkTraceCheckBox = $Window.FindName("networkTraceCheckBox")
+        $Global:memoryCheckBox = $Window.FindName("memoryCheckBox")
+        $Global:dumpMemoryCheckBox = $Window.FindName("dumpMemoryCheckBox")
+        $Global:WPRCheckBox = $Window.FindName("WPRCheckBox")
+        $Global:SetupCheckBox = $Window.FindName("SetupCheckBox")
+        $Global:BackupRestoreCheckBox = $Window.FindName("BackupRestoreCheckBox")
+        $Global:IOCheckBox = $Window.FindName("IOCheckBox")
+        $Global:NoBasicCheckBox = $Window.FindName("NoBasicCheckBox")
+        $Global:overrideExistingCheckBox = $Window.FindName("overrideExistingCheckBox")
+        $Global:ComboBoxInstanceName = $Window.FindName("ComboBoxInstanceName")
+        $Global:ButtonPresentDirectory = $Window.FindName("ButtonPresentDirectory")
+                
+        
+        $Global:ButtonPresentDirectory.Add_Click(
+        {
+            $objForm = New-Object System.Windows.Forms.FolderBrowserDialog
+            $Show = $objForm.ShowDialog()
+              if ($Show -eq "OK")
+              {
+                  $Global:txtPresentDirectory.Text = $objForm.SelectedPath;
+              }
+        })
+
+         $Global:okButton.Add_Click(
+        {
+           $Window.DialogResult = $true;
+           #$Window.Close()
+  
+        }
+        )
+
+        $Window.Add_Loaded({
+                            Foreach ($Instance in Get-NetNameMatchingInstance){$ComboBoxInstanceName.Items.Add($Instance)}                          
+                          })
+        
+        #$Global:txtPresentDirectory.Text = $global:present_directory
+        Set-PresentDirectory
+        $global:gui_Result = $Window.ShowDialog()
+
+        #Below stated code needs to be removed it just for testing purpose.
+        if($global:gui_Result)
+        {
+            Write-LogInformation "Window.ShowDialog() result is true"
+        }
+           
+
+    }
+    catch 
+    {
+        HandleCatchBlock -function_name $($MyInvocation.MyCommand) -err_rec $PSItem
+    }
+
+}
+
+
+function Set-Mode()
+{
+
+    try
+    {
+        Write-LogDebug "inside" $MyInvocation.MyCommand
+       
+            $userlogfolder = Read-Host "Would you like to use GUI mode ?" -CustomLogMessage "Prompt CustomDir Console Input:"
+            $HelpMessage = "Please enter a valid input (Y or N)"
+
+            $ValidInput = "Y","N"
+            $AllInput = @()
+            $AllInput += , $ValidInput
+            $AllInput += , $userlogfolder
+            $AllInput += , $HelpMessage
+
+            $YNselected = validateUserInput($AllInput)
+            
+
+            if ($YNselected -eq "Y")
+            {
+                $global:gui_mode = $true;
+            }
+
+
+    }
+    catch
+    {
+        HandleCatchBlock -function_name $($MyInvocation.MyCommand) -err_rec $PSItem
+        exit
+    }
+
 }
 
 
